@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>鹈鹕骑自行车 · Pelican on a Bike</title>
+<meta name="description" content="戴头盔墨镜、系红围巾的鹈鹕在海岸公路上骑车抓鱼。Three.js + WebAudio 实时渲染与合成。">
+<meta property="og:title" content="🚲 鹈鹕骑自行车">
+<meta property="og:description" content="海岸公路 · 布料围巾 · 昼夜循环 · 实时合成音乐">
+<meta name="theme-color" content="#1a1430">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚲</text></svg>">
+<style>
+  :root { --glass: rgba(14, 16, 32, .42); --line: rgba(255, 255, 255, .14); --txt: #f4efe6; --acc: #ffb547; --red: #e5223a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d18; color: var(--txt);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  canvas { display: block; touch-action: none; }
+  .glass { background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(10px) saturate(1.3); -webkit-backdrop-filter: blur(10px) saturate(1.3); border-radius: 14px; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #stats { position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; padding: 10px 14px; display: grid; grid-template-columns: auto auto; gap: 2px 14px; min-width: 190px; }
+  #stats .k { opacity: .65; font-size: 12px; }
+  #stats .v { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  #score { grid-column: 1 / -1; font-size: 26px; font-weight: 800; letter-spacing: .5px; text-align: left !important; }
+  #combo { grid-column: 1 / -1; color: var(--acc); font-weight: 700; height: 18px; text-align: left !important; }
+  #topright { position: absolute; top: max(14px, env(safe-area-inset-top)); right: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #info { padding: 8px 12px; text-align: right; font-size: 12px; }
+  #info b { font-size: 18px; font-variant-numeric: tabular-nums; }
+  #tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .tag { padding: 4px 9px; font-size: 12px; border-radius: 999px; }
+  #auto { color: #7fe3ff; display: none; }
+  #auto.on { display: inline-block; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .btns { pointer-events: auto; display: flex; gap: 6px; }
+  .btn { pointer-events: auto; cursor: pointer; color: var(--txt); font: inherit; padding: 6px 10px; border-radius: 10px; }
+  .btn:hover { background: rgba(255, 255, 255, .14); }
+  .btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  #speedo { position: absolute; bottom: max(18px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); padding: 8px 18px; display: flex; gap: 18px; align-items: baseline; }
+  #speedo .big { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #speedo .unit { opacity: .6; font-size: 12px; margin-left: 3px; }
+  #bar { width: 120px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; align-self: center; }
+  #bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #4be3c3, #ffb547, #ff4b5c); }
+  #toasts { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast { padding: 10px 16px; display: flex; gap: 10px; align-items: center; animation: tin .45s cubic-bezier(.2, 1.4, .4, 1), tout .5s 3.3s forwards; }
+  .toast .i { font-size: 26px; } .toast small { display: block; opacity: .7; }
+  @keyframes tin { from { transform: translateY(-20px) scale(.9); opacity: 0; } }
+  @keyframes tout { to { transform: translateY(-14px); opacity: 0; } }
+  .pop { position: absolute; font-weight: 800; font-size: 20px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.5); animation: pop 1s forwards; white-space: nowrap; }
+  .pop.gold { color: #ffd34d; font-size: 26px; }
+  @keyframes pop { from { transform: translate(-50%, 0) scale(.6); opacity: 0; } 20% { transform: translate(-50%, -10px) scale(1.15); opacity: 1; } to { transform: translate(-50%, -70px) scale(1); opacity: 0; } }
+  .letterbox::before, .letterbox::after { content: ""; position: fixed; left: 0; right: 0; height: 9vh; background: #000; z-index: 1; transition: height .6s; }
+  .letterbox::before { top: 0; } .letterbox::after { bottom: 0; }
+  body:not(.cine) .letterbox::before, body:not(.cine) .letterbox::after { height: 0; }
+  #flash { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle, transparent 40%, rgba(255, 40, 40, .45)); opacity: 0; transition: opacity .4s; }
+  /* 面板 */
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5, 6, 14, .45); z-index: 5; }
+  .overlay[hidden] { display: none; }
+  .panel { padding: 22px 26px; max-width: min(560px, 92vw); max-height: 86vh; overflow: auto; }
+  .panel h2 { margin: 0 0 10px; font-size: 20px; }
+  #start h1 { margin: 0; font-size: clamp(30px, 6vw, 52px); letter-spacing: 2px; text-shadow: 0 4px 30px rgba(255, 140, 60, .5); }
+  #start p { opacity: .85; max-width: 520px; }
+  #start { background: linear-gradient(180deg, rgba(5,6,14,.1), rgba(5,6,14,.55)); text-align: center; }
+  #go { margin-top: 18px; font-size: 18px; font-weight: 700; padding: 12px 34px; border-radius: 999px; border: 0; cursor: pointer; color: #1a1020; background: linear-gradient(135deg, #ffd34d, #ff7a45); box-shadow: 0 8px 30px rgba(255, 120, 60, .45); }
+  #go:focus-visible { outline: 3px solid #fff; }
+  kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: rgba(255,255,255,.08); font: 12px/1.6 ui-monospace, Menlo, monospace; text-align: center; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; text-align: left; margin: 0; }
+  .keys dt { white-space: nowrap; } .keys dd { margin: 0; opacity: .85; }
+  #achList { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+  #achList li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.05); opacity: .45; filter: grayscale(1); }
+  #achList li.got { opacity: 1; filter: none; background: rgba(255, 181, 71, .14); }
+  #achList .i { font-size: 24px; } #achList small { display: block; opacity: .7; }
+  /* 触屏 */
+  #touch { position: fixed; inset: auto 0 0 0; padding: 0 14px max(14px, env(safe-area-inset-bottom)); display: none; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 3; }
+  body.touch #touch { display: flex; }
+  body.touch #speedo { bottom: 150px; }
+  .pad { display: grid; gap: 8px; pointer-events: auto; }
+  .pad.l { grid-template-areas: ". u ." "a s d"; grid-template-columns: repeat(3, 62px); }
+  .pad.r { grid-template-columns: repeat(2, 72px); }
+  .tb { height: 62px; border-radius: 16px; font-size: 22px; color: #fff; display: grid; place-items: center; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .tb.on { background: rgba(255, 181, 71, .45); }
+  .tb small { font-size: 10px; display: block; opacity: .7; margin-top: -4px; }
+  @media (max-width: 640px) { #stats { min-width: 150px; padding: 8px 10px; } #score { font-size: 20px; } #info { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .toast, .pop, #auto.on { animation: none; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="letterbox"></div>
+<div id="hud" aria-live="polite">
+  <div id="stats" class="glass">
+    <div id="score" class="v">0</div>
+    <div id="combo"></div>
+    <span class="k">🐟 鱼</span><span class="v" id="sFish">0</span>
+    <span class="k">✨ 金鱼</span><span class="v" id="sGold">0</span>
+    <span class="k">🛣️ 里程</span><span class="v" id="sDist">0 m</span>
+    <span class="k">🏆 成就</span><span class="v" id="sAch">0/14</span>
+  </div>
+  <div id="topright">
+    <div id="info" class="glass"><b id="clock">17:00</b><br><span id="sky">黄昏</span></div>
+    <div id="tags">
+      <span class="tag glass" id="auto">🤖 自动驾驶</span>
+      <span class="tag glass" id="camName">追尾镜头</span>
+      <span class="tag glass" id="qName">画质 自动·高</span>
+    </div>
+    <div class="btns">
+      <button class="btn glass" id="bCam" aria-label="切换镜头 (C)">🎥</button>
+      <button class="btn glass" id="bAch" aria-label="成就 (J)">🏆</button>
+      <button class="btn glass" id="bMute" aria-label="静音 (M)">🔊</button>
+      <button class="btn glass" id="bHelp" aria-label="帮助 (H)">❔</button>
+    </div>
+  </div>
+  <div id="speedo" class="glass">
+    <div><span class="big" id="kmh">0</span><span class="unit">km/h</span></div>
+    <div id="bar"><i></i></div>
+    <div><span class="big" id="rpm" style="font-size:20px">0</span><span class="unit">rpm 踏频</span></div>
+  </div>
+  <div id="toasts"></div>
+</div>
+<div id="flash"></div>
+
+<div id="touch" aria-hidden="false">
+  <div class="pad l">
+    <div class="tb glass" id="tW" style="grid-area:u" role="button" aria-label="加速">▲<small>加速</small></div>
+    <div class="tb glass" id="tA" style="grid-area:a" role="button" aria-label="左变道">◀</div>
+    <div class="tb glass" id="tS" style="grid-area:s" role="button" aria-label="减速">▼<small>刹车</small></div>
+    <div class="tb glass" id="tD" style="grid-area:d" role="button" aria-label="右变道">▶</div>
+  </div>
+  <div class="pad r">
+    <div class="tb glass" id="tT" role="button" aria-label="展翅">🪽<small>展翅</small></div>
+    <div class="tb glass" id="tJ" role="button" aria-label="跳跃">⤒<small>跳</small></div>
+  </div>
+</div>
+
+<div id="start" class="overlay">
+  <div>
+    <h1>🚲 鹈鹕骑自行车</h1>
+    <p>戴着头盔墨镜、系着红围巾的鹈鹕，正沿着海岸公路一路追鱼。<br>从黄昏骑到星空月夜。不碰键盘时，它会自己去追鱼。</p>
+    <button id="go">开始骑行</button>
+    <p style="font-size:12px;opacity:.6;margin-top:14px"><kbd>W</kbd><kbd>S</kbd> 加减速 · <kbd>A</kbd><kbd>D</kbd> 变道 · <kbd>空格</kbd> 跳 · <kbd>T</kbd> 展翅 · <kbd>C</kbd> 镜头 · <kbd>H</kbd> 帮助</p>
+  </div>
+</div>
+
+<div id="help" class="overlay" hidden>
+  <div class="panel glass" role="dialog" aria-label="操作说明">
+    <h2>操作说明</h2>
+    <dl class="keys">
+      <dt><kbd>W</kbd> / <kbd>S</kbd></dt><dd>加速 / 减速（踏频决定音乐节奏）</dd>
+      <dt><kbd>A</kbd> / <kbd>D</kbd></dt><dd>左右变道，去接跃出海面的鱼</dd>
+      <dt><kbd>空格</kbd></dt><dd>跳跃：躲开路障和螃蟹，够到高处的鱼</dd>
+      <dt><kbd>T</kbd>（按住）</dt><dd>展翅：地面上翘前轮，空中滑翔</dd>
+      <dt><kbd>C</kbd> / <kbd>1</kbd>–<kbd>5</kbd></dt><dd>镜头：追尾 / 侧拍 / 航拍 / 电影运镜 / 鹈鹕视角</dd>
+      <dt><kbd>B</kbd></dt><dd>按车铃</dd>
+      <dt><kbd>N</kbd>（按住）</dt><dd>时间快进</dd>
+      <dt><kbd>Q</kbd></dt><dd>画质：自动 → 低 → 中 → 高 → 极致</dd>
+      <dt><kbd>M</kbd> · <kbd>J</kbd> · <kbd>P</kbd></dt><dd>静音 · 成就 · 暂停</dd>
+    </dl>
+    <p style="opacity:.7;font-size:12px">6 秒无操作会切到自动驾驶。金鱼 500 分，每 3 连击分数倍率 +1。</p>
+    <button class="btn glass" data-close>关闭</button>
+  </div>
+</div>
+
+<div id="ach" class="overlay" hidden>
+  <div class="panel glass" role="dialog" aria-label="成就">
+    <h2>🏆 成就 <span id="achCount" style="opacity:.6;font-size:14px"></span></h2>
+    <ul id="achList"></ul>
+    <p style="display:flex;gap:8px;margin-bottom:0"><button class="btn glass" data-close>关闭</button><button class="btn glass" id="achReset">重置成就</button></p>
+  </div>
+</div>
+
+<noscript>需要启用 JavaScript 与 WebGL。</noscript>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
